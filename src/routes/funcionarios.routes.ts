@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { cpfValido, somenteDigitos } from "../utils/validadores.js";
+import { dataOpcional } from "../utils/zod.js";
 
 export const schema = z.object({
   nome: z.string().min(1),
@@ -9,11 +10,12 @@ export const schema = z.object({
     .string()
     .refine(cpfValido, { message: "CPF inválido" })
     .transform(somenteDigitos),
-  dataAdmissao: z.coerce.date().optional(),
+  dataAdmissao: dataOpcional,
 });
 
 export default async function funcionariosRoutes(app: FastifyInstance) {
-  app.addHook("preHandler", app.authenticate);
+  // Dados financeiros e de RH: só admin (LGPD — professor não usa essas telas).
+  app.addHook("preHandler", app.authorize(["admin"]));
 
   app.get("/", async () => app.prisma.funcionario.findMany({ orderBy: { nome: "asc" } }));
 

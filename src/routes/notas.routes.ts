@@ -39,6 +39,22 @@ export default async function notasRoutes(app: FastifyInstance) {
     const body = schema.safeParse(request.body);
     if (!body.success) return reply.code(400).send(body.error.flatten());
 
+    // Se a turma atual do aluno tem currículo definido para esse ano letivo, a disciplina precisa estar nele.
+    // Turmas sem currículo cadastrado não são bloqueadas (compatibilidade com dados antigos).
+    const aluno = await app.prisma.aluno.findUnique({
+      where: { id: body.data.alunoId },
+      select: { turma: { select: { anoLetivo: true, disciplinas: { select: { disciplinaId: true } } } } },
+    });
+    if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado" });
+    const curriculo = aluno.turma.disciplinas.map((d) => d.disciplinaId);
+    if (
+      aluno.turma.anoLetivo === body.data.anoLetivo &&
+      curriculo.length > 0 &&
+      !curriculo.includes(body.data.disciplinaId)
+    ) {
+      return reply.code(400).send({ message: "A disciplina não faz parte do currículo da turma." });
+    }
+
     const autorizado = await podeLancar(request, body.data.alunoId, body.data.disciplinaId);
     if (!autorizado) return reply.code(403).send({ message: "Você não leciona essa disciplina nessa turma" });
 

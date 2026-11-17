@@ -1,11 +1,11 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { loginSchema } from "../routes/auth.routes.js";
+import { loginSchema, perfilSchema, senhaSchema } from "../routes/auth.routes.js";
 import { criarSchema as criarUsuarioSchema, atualizarSchema as atualizarUsuarioSchema } from "../routes/usuarios.routes.js";
 import { schema as responsavelSchema } from "../routes/responsaveis.routes.js";
 import { schema as turmaSchema } from "../routes/turmas.routes.js";
 import { schema as disciplinaSchema } from "../routes/disciplinas.routes.js";
 import { schema as turmaDisciplinaProfessorSchema } from "../routes/turma-disciplina-professor.routes.js";
-import { schema as alunoSchema } from "../routes/alunos.routes.js";
+import { schema as alunoSchema, observacaoSchema } from "../routes/alunos.routes.js";
 import { schema as notaSchema } from "../routes/notas.routes.js";
 import { criarSchema as criarMensalidadeSchema, pagamentoSchema as pagamentoMensalidadeSchema } from "../routes/mensalidades.routes.js";
 import { schema as funcionarioSchema } from "../routes/funcionarios.routes.js";
@@ -107,7 +107,25 @@ export const openapiDocument = {
         tags: ["Auth"],
         summary: "Retorna o usuário autenticado pelo token",
         security: bearerAuth,
-        responses: { 200: { description: "{ id, nome, email, perfil }" }, 401: r401 },
+        responses: { 200: { description: "{ id, nome, email, perfil, foto }" }, 401: r401 },
+      },
+    },
+    "/auth/perfil": {
+      patch: {
+        tags: ["Auth"],
+        summary: "Atualiza a foto do próprio usuário (data URL base64 JPG/PNG/WebP; null remove)",
+        security: bearerAuth,
+        requestBody: jsonBody(perfilSchema),
+        responses: { 200: { description: "{ id, nome, email, perfil, foto }" }, 400: r400, 401: r401, 413: { description: "Imagem grande demais" } },
+      },
+    },
+    "/auth/senha": {
+      patch: {
+        tags: ["Auth"],
+        summary: "Troca a senha do próprio usuário (confere a senha atual)",
+        security: bearerAuth,
+        requestBody: jsonBody(senhaSchema),
+        responses: { 204: { description: "Senha alterada" }, 400: { description: "Senha atual incorreta ou nova senha inválida" }, 401: r401 },
       },
     },
 
@@ -147,7 +165,7 @@ export const openapiDocument = {
     "/responsaveis": {
       get: {
         tags: ["Responsáveis"],
-        summary: "Lista responsáveis com os alunos vinculados",
+        summary: "Lista responsáveis com os alunos vinculados (professor recebe só id, nome e alunos — LGPD)",
         security: bearerAuth,
         responses: { 200: { description: "Lista de responsáveis" }, 401: r401 },
       },
@@ -162,7 +180,7 @@ export const openapiDocument = {
     "/responsaveis/{id}": {
       get: {
         tags: ["Responsáveis"],
-        summary: "Busca um responsável por id",
+        summary: "Busca um responsável por id (professor recebe só id, nome e alunos — LGPD)",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         responses: { 200: { description: "Responsável" }, 401: r401, 404: r404 },
@@ -187,13 +205,13 @@ export const openapiDocument = {
     "/turmas": {
       get: {
         tags: ["Turmas"],
-        summary: "Lista turmas com a contagem de alunos",
+        summary: "Lista turmas com a contagem de alunos e o currículo (disciplinaIds)",
         security: bearerAuth,
         responses: { 200: { description: "Lista de turmas" }, 401: r401 },
       },
       post: {
         tags: ["Turmas"],
-        summary: "🔒 admin — cria turma",
+        summary: "🔒 admin — cria turma (disciplinaIds opcional define o currículo)",
         security: bearerAuth,
         requestBody: jsonBody(turmaSchema),
         responses: { 201: { description: "Turma criada" }, 400: r400, 401: r401, 403: r403 },
@@ -211,7 +229,7 @@ export const openapiDocument = {
     "/turmas/{id}": {
       patch: {
         tags: ["Turmas"],
-        summary: "🔒 admin — atualiza turma",
+        summary: "🔒 admin — atualiza turma (enviar disciplinaIds substitui o currículo inteiro)",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         requestBody: jsonBody(turmaSchema),
@@ -219,10 +237,10 @@ export const openapiDocument = {
       },
       delete: {
         tags: ["Turmas"],
-        summary: "🔒 admin — exclui turma (hard delete)",
+        summary: "🔒 admin — exclui turma (hard delete; 409 se tiver alunos)",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-        responses: { 204: { description: "Excluída" }, 401: r401, 403: r403, 404: r404 },
+        responses: { 204: { description: "Excluída" }, 401: r401, 403: r403, 404: r404, 409: { description: "Turma possui alunos ou outros vínculos" } },
       },
     },
 
@@ -244,7 +262,7 @@ export const openapiDocument = {
     "/disciplinas/{id}": {
       patch: {
         tags: ["Disciplinas"],
-        summary: "🔒 admin — atualiza disciplina",
+        summary: "🔒 admin — atualiza disciplina (409 se o nome já existir, ignorando maiúsculas/acentos)",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         requestBody: jsonBody(disciplinaSchema),
@@ -268,7 +286,7 @@ export const openapiDocument = {
       },
       post: {
         tags: ["Turma-Disciplina-Professor"],
-        summary: "🔒 admin — vincula um professor a uma turma+disciplina (autoriza o lançamento de notas)",
+        summary: "🔒 admin — vincula um professor a uma turma+disciplina (400 se a disciplina estiver fora do currículo; 409 se já houver professor)",
         security: bearerAuth,
         requestBody: jsonBody(turmaDisciplinaProfessorSchema),
         responses: { 201: { description: "Vínculo criado" }, 400: r400, 401: r401, 403: r403, 409: r409 },
@@ -335,7 +353,15 @@ export const openapiDocument = {
         summary: "Boletim do aluno — aluno + todas as notas por disciplina/bimestre",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-        responses: { 200: { description: "{ aluno, notas }" }, 401: r401, 404: r404 },
+        responses: { 200: { description: "{ aluno (com turma.disciplinaIds), notas, observacoes: [{ anoLetivo, periodo, texto }] }" }, 401: r401, 404: r404 },
+      },
+      patch: {
+        tags: ["Alunos"],
+        summary: "🔒 admin — salva a observação do boletim para um ano letivo + período",
+        security: bearerAuth,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        requestBody: jsonBody(observacaoSchema),
+        responses: { 200: { description: "{ anoLetivo, periodo, texto }" }, 400: r400, 401: r401, 403: r403, 404: r404 },
       },
     },
 
@@ -374,7 +400,7 @@ export const openapiDocument = {
     "/mensalidades": {
       get: {
         tags: ["Mensalidades"],
-        summary: "Lista mensalidades (filtra por status/mês). Marca automaticamente como ATRASADO as pendentes vencidas. Paginação via `pagina` é opcional.",
+        summary: "🔒 admin — lista mensalidades (filtra por status/mês). Marca automaticamente como ATRASADO as pendentes vencidas. Paginação via `pagina` é opcional.",
         security: bearerAuth,
         parameters: [
           { name: "status", in: "query", required: false, schema: { type: "string", enum: ["PAGO", "PENDENTE", "ATRASADO"] } },
@@ -415,7 +441,7 @@ export const openapiDocument = {
     "/funcionarios": {
       get: {
         tags: ["Funcionários"],
-        summary: "Lista funcionários",
+        summary: "🔒 admin — lista funcionários",
         security: bearerAuth,
         responses: { 200: { description: "Lista de funcionários" }, 401: r401 },
       },
@@ -448,7 +474,7 @@ export const openapiDocument = {
     "/despesas": {
       get: {
         tags: ["Despesas"],
-        summary: "Lista despesas",
+        summary: "🔒 admin — lista despesas",
         security: bearerAuth,
         responses: { 200: { description: "Lista de despesas" }, 401: r401 },
       },
@@ -461,6 +487,14 @@ export const openapiDocument = {
       },
     },
     "/despesas/{id}": {
+      patch: {
+        tags: ["Despesas"],
+        summary: "🔒 admin — edita despesa (parcial; null limpa campos opcionais)",
+        security: bearerAuth,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        requestBody: jsonBody(despesaSchema.partial()),
+        responses: { 200: { description: "Registro atualizado" }, 400: r400, 401: r401, 403: r403, 404: r404 },
+      },
       delete: {
         tags: ["Despesas"],
         summary: "🔒 admin — exclui despesa",
@@ -473,7 +507,7 @@ export const openapiDocument = {
     "/registros-funcionario": {
       get: {
         tags: ["Registros de Funcionário"],
-        summary: "Lista registros (histórico livre por funcionário)",
+        summary: "🔒 admin — lista registros (histórico livre por funcionário)",
         security: bearerAuth,
         responses: { 200: { description: "Lista de registros" }, 401: r401 },
       },
@@ -486,6 +520,14 @@ export const openapiDocument = {
       },
     },
     "/registros-funcionario/{id}": {
+      patch: {
+        tags: ["Registros de Funcionário"],
+        summary: "🔒 admin — edita registro (parcial; null limpa campos opcionais)",
+        security: bearerAuth,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        requestBody: jsonBody(registroFuncionarioSchema.partial()),
+        responses: { 200: { description: "Registro atualizado" }, 400: r400, 401: r401, 403: r403, 404: r404 },
+      },
       delete: {
         tags: ["Registros de Funcionário"],
         summary: "🔒 admin — exclui o registro",

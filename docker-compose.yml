@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: colegio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: escola
+      POSTGRES_PASSWORD: escola
+      POSTGRES_DB: escola
+    ports:
+      - "127.0.0.1:5432:5432"   # acessível só pela sua máquina (DBeaver, psql)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U escola -d escola"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: colegio-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://escola:escola@db:5432/escola?schema=public
+    ports:
+      - "3333:3333"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # código montado: ao salvar no VS Code, a API reinicia sozinha (tsx watch)
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+    command: sh -c "npx prisma migrate deploy && npx prisma generate && npm run dev"
+
+volumes:
+  pgdata:

@@ -6,6 +6,7 @@ export async function limparBanco(prisma: PrismaClient) {
   await prisma.nota.deleteMany();
   await prisma.mensalidade.deleteMany();
   await prisma.turmaDisciplinaProfessor.deleteMany();
+  await prisma.turmaDisciplina.deleteMany();
   await prisma.aluno.deleteMany();
   await prisma.despesa.deleteMany();
   await prisma.registroFuncionario.deleteMany();

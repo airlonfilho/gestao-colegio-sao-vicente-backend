@@ -22,8 +22,28 @@ import despesasRoutes from "./routes/despesas.routes.js";
 import registrosFuncionarioRoutes from "./routes/registros-funcionario.routes.js";
 import mensagensWhatsappRoutes from "./routes/mensagens-whatsapp.routes.js";
 
+/**
+ * Mensagem de duplicidade (P2002) específica do recurso, em vez de uma genérica.
+ * Decide pela rota e, quando ajuda, pelos campos do índice único (`meta.target`).
+ */
+export function mensagemDuplicidade(url: string, target: unknown) {
+  const campos = (Array.isArray(target) ? target : [String(target ?? "")]).join(",");
+  const recurso = url.split("?")[0].split("/")[1] ?? "";
+
+  if (campos.includes("email") || recurso === "usuarios") return "Já existe um usuário com esse e-mail.";
+  if (campos.includes("cpf") || recurso === "responsaveis" || recurso === "funcionarios") {
+    return "Já existe um cadastro com esse CPF.";
+  }
+  if (recurso === "turma-disciplina-professor") return "Essa disciplina já tem professor vinculado nessa turma.";
+  if (recurso === "mensalidades") return "Já existe mensalidade desse aluno para esse mês.";
+  if (recurso === "disciplinas" || campos.includes("nome_normalizado")) return "Já existe uma disciplina com esse nome.";
+  if (recurso === "turmas") return "Essa disciplina já está no currículo da turma.";
+  return "Já existe um registro com esses dados.";
+}
+
 export function buildApp() {
-  const app = Fastify({ logger: true });
+  // bodyLimit maior que o padrão (1 MB) para aceitar fotos em base64 (até ~3 MB de imagem).
+  const app = Fastify({ logger: true, bodyLimit: 5 * 1024 * 1024 });
 
   app.register(cors, { origin: true });
   app.register(prismaPlugin);
@@ -35,11 +55,22 @@ export function buildApp() {
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") {
-        return reply.code(409).send({ message: "Já existe um registro com esse valor único (ex.: e-mail ou CPF duplicado)" });
+        return reply.code(409).send({ message: mensagemDuplicidade(_request.url, error.meta?.target) });
       }
       if (error.code === "P2025") {
         return reply.code(404).send({ message: "Registro não encontrado" });
       }
+      if (error.code === "P2003") {
+        // Violação de chave estrangeira: na exclusão, o registro ainda é usado em outro lugar;
+        // na criação/edição, o ID referenciado não existe.
+        return _request.method === "DELETE"
+          ? reply.code(409).send({ message: "Não é possível excluir: o registro está vinculado a outros dados" })
+          : reply.code(400).send({ message: "Referência inválida: um dos registros informados não existe" });
+      }
+    }
+
+    if (error.statusCode === 413) {
+      return reply.code(413).send({ message: "Arquivo muito grande. Envie uma imagem de até 3 MB." });
     }
 
     app.log.error(error);

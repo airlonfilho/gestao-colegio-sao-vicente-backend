@@ -1,6 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { lerPaginacao, paginar } from "../utils/paginacao.js";
+import { dataOpcionalSemNull } from "../utils/zod.js";
+import { incluirResponsavel } from "../utils/privacidade.js";
 
 export const criarSchema = z.object({
   alunoId: z.number().int(),
@@ -11,11 +13,12 @@ export const criarSchema = z.object({
 
 export const pagamentoSchema = z.object({
   formaPagamento: z.enum(["PIX", "BOLETO", "CARTAO", "DINHEIRO", "FOLHA_PAGAMENTO"]),
-  dataPagamento: z.coerce.date().optional(),
+  dataPagamento: dataOpcionalSemNull,
 });
 
 export default async function mensalidadesRoutes(app: FastifyInstance) {
-  app.addHook("preHandler", app.authenticate);
+  // Dados financeiros e de RH: só admin (LGPD — professor não usa essas telas).
+  app.addHook("preHandler", app.authorize(["admin"]));
 
   app.get("/", async (request) => {
     const query = request.query as { status?: string; mesReferencia?: string; pagina?: string; tamanhoPagina?: string };
@@ -31,7 +34,7 @@ export default async function mensalidadesRoutes(app: FastifyInstance) {
     };
     const argsComuns = {
       where,
-      include: { aluno: { include: { responsavel: true, turma: true } } },
+      include: { aluno: { include: { responsavel: incluirResponsavel(request.user.perfil), turma: true } } },
       orderBy: { vencimento: "asc" as const },
     };
 

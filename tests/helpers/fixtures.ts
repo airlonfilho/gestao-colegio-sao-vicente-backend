@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { hashSenha } from "../../src/utils/hash.js";
+import { normalizarNome } from "../../src/utils/texto.js";
 
 export async function criarUsuario(
   prisma: PrismaClient,
@@ -33,7 +34,7 @@ export async function criarTurma(prisma: PrismaClient, dados: Partial<{ nome: st
 }
 
 export async function criarDisciplina(prisma: PrismaClient, nome = "Disciplina de Teste") {
-  return prisma.disciplina.create({ data: { nome } });
+  return prisma.disciplina.create({ data: { nome, nomeNormalizado: normalizarNome(nome) } });
 }
 
 export async function criarResponsavel(prisma: PrismaClient, sufixo: string) {

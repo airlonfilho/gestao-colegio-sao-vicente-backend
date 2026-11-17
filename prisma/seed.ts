@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { normalizarNome } from "../src/utils/texto.js";
 
 const prisma = new PrismaClient();
 
@@ -24,12 +25,13 @@ async function main() {
   });
 
   const turma = await prisma.turma.create({
-    data: { nome: "9º Ano A", nivelEnsino: "Ensino Fundamental II", sala: "301", anoLetivo: 2026, valorMensalidade: 1850 },
+    data: { nome: "9º Ano A", nivelEnsino: "Fundamental II", sala: "301", anoLetivo: 2026, valorMensalidade: 1850 },
   });
 
-  const matematica = await prisma.disciplina.upsert({ where: { nome: "Matemática" }, update: {}, create: { nome: "Matemática" } }).catch(async () => {
-    const existente = await prisma.disciplina.findFirst({ where: { nome: "Matemática" } });
-    return existente ?? prisma.disciplina.create({ data: { nome: "Matemática" } });
+  const matematica = await prisma.disciplina.upsert({
+    where: { nomeNormalizado: normalizarNome("Matemática") },
+    update: {},
+    create: { nome: "Matemática", nomeNormalizado: normalizarNome("Matemática") },
   });
 
   await prisma.turmaDisciplinaProfessor.create({

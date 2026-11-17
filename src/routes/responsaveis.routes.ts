@@ -1,6 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { cpfValido, somenteDigitos, telefoneValido } from "../utils/validadores.js";
+import { emailOpcional, textoOpcional } from "../utils/zod.js";
+import { camposResponsavel } from "../utils/privacidade.js";
 
 export const schema = z.object({
   nome: z.string().min(1),
@@ -12,16 +14,17 @@ export const schema = z.object({
     .string()
     .refine(telefoneValido, { message: "Telefone inválido (use DDD + número)" })
     .transform(somenteDigitos),
-  email: z.string().email().optional(),
-  endereco: z.string().optional(),
+  email: emailOpcional,
+  endereco: textoOpcional,
 });
 
 export default async function responsaveisRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
 
-  app.get("/", async () => {
+  // Professor recebe só id, nome e alunos (LGPD); admin recebe o cadastro completo.
+  app.get("/", async (request) => {
     return app.prisma.responsavel.findMany({
-      include: { alunos: { select: { id: true, nome: true } } },
+      select: camposResponsavel(request.user.perfil),
       orderBy: { nome: "asc" },
     });
   });
@@ -30,7 +33,7 @@ export default async function responsaveisRoutes(app: FastifyInstance) {
     const id = Number((request.params as { id: string }).id);
     const responsavel = await app.prisma.responsavel.findUnique({
       where: { id },
-      include: { alunos: { select: { id: true, nome: true } } },
+      select: camposResponsavel(request.user.perfil),
     });
     if (!responsavel) return reply.code(404).send({ message: "Responsável não encontrado" });
     return responsavel;

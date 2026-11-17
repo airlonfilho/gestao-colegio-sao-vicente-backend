@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { incluirResponsavel } from "../utils/privacidade.js";
 
 export const enviarSchema = z.object({
   alunoId: z.number().int(),
@@ -10,9 +11,9 @@ export const enviarSchema = z.object({
 export default async function mensagensWhatsappRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
 
-  app.get("/", async () => {
+  app.get("/", async (request) => {
     return app.prisma.mensagemWhatsapp.findMany({
-      include: { aluno: { include: { responsavel: true } } },
+      include: { aluno: { include: { responsavel: incluirResponsavel(request.user.perfil) } } },
       orderBy: { criadoEm: "desc" },
     });
   });
