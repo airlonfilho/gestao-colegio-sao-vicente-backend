@@ -196,11 +196,11 @@ export default async function mensalidadesRoutes(app: FastifyInstance) {
         if (!competencias) return { erro: 404 as const, message: "Aluno não encontrado." };
         const selecionadas = competencias.filter(({ mes }) => meses.includes(mes));
         const pagaveis = selecionadas.flatMap(({ existente, nova }) => {
-          if (existente && (existente.status === "PENDENTE" || existente.status === "ATRASADO")) return [{ existente, nova }];
-          if (nova && nova.status !== "ISENTO") return [{ existente, nova }];
-          return [];
+          const cobranca = existente ?? nova;
+          if (!cobranca || (cobranca.status !== "PENDENTE" && cobranca.status !== "ATRASADO")) return [];
+          return [{ existente, nova, valor: cobranca.valor }];
         });
-        const total = pagaveis.reduce((soma, { existente, nova }) => soma + (existente ?? nova)!.valor.mul(100).toNumber(), 0);
+        const total = pagaveis.reduce((soma, { valor }) => soma + valor.mul(100).toNumber(), 0);
         if (pagaveis.length !== meses.length || total !== totalCentavos) return { erro: 409 as const, message: mensagemConflito };
 
         for (const { existente, nova } of pagaveis) {
