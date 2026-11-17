@@ -583,7 +583,7 @@ export const openapiDocument = {
         tags: ["Mensagens WhatsApp"],
         summary: "Lista o histórico de mensagens (com aluno + responsável)",
         security: bearerAuth,
-        responses: { 200: { description: "Lista de mensagens" }, 401: r401 },
+        responses: { 200: { description: "Lista de mensagens" }, 401: r401, 403: r403 },
       },
     },
     "/mensagens-whatsapp/enviar": {

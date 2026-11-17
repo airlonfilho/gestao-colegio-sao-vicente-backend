@@ -9,6 +9,8 @@ import { comDisciplinaIds, includeCurriculo } from "./turmas.routes.js";
 export const schema = z.object({
   nome: z.string().min(1),
   dataNascimento: dataOpcional,
+  matriculaEm: z.string().date().transform((data) => new Date(data)).optional(),
+  valorMensalidadePersonalizado: z.number().min(0).max(99999999.99).multipleOf(0.01).nullable().optional(),
   foto: fotoOpcional,
   turmaId: z.number().int(),
   responsavelId: z.number().int(),
@@ -185,7 +187,7 @@ export default async function alunosRoutes(app: FastifyInstance) {
       let cobrancasRecalculadas = 0;
       if (turmaMudou) {
         cobrancasRecalculadas = await recalcularNaoPagas(tx, aluno, {
-          valorTurma: aluno.turma.valorMensalidade,
+          valorTurma: aluno.valorMensalidadePersonalizado ?? aluno.turma.valorMensalidade,
           recalcularVencimento: Boolean(aplicarPendentes && diaMudou),
         });
       } else if (aplicarPendentes && (diaMudou || descontoMudou)) {

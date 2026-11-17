@@ -58,6 +58,53 @@ beforeEach(async () => {
   responsavelId = (await criarResponsavel(prisma, "cobranca")).id;
 });
 
+it("salva os dados financeiros do aluno e usa seus valores nas mensalidades", async () => {
+  await configurar({ cobrancaAutomatica: true });
+  const criado = await req(admin, "POST", "/alunos", {
+    nome: "Aluno", turmaId, responsavelId, matriculaEm: "2027-03-01",
+    valorMensalidadePersonalizado: 1500.25, diaVencimento: 25,
+  });
+  expect(criado.statusCode, criado.body).toBe(201);
+  const { id } = criado.json();
+  const [marco] = await cobrancasDe(id);
+  expect(n(marco.valor)).toBe(1500.25);
+  expect(dia(marco.vencimento.toISOString())).toBe("2027-03-25");
+
+  const atualizado = await req(admin, "PATCH", `/alunos/${id}`, {
+    matriculaEm: "2027-02-20", valorMensalidadePersonalizado: null, diaVencimento: null,
+  });
+  expect(atualizado.statusCode, atualizado.body).toBe(200);
+  expect(dia(atualizado.json().matriculaEm)).toBe("2027-02-20");
+  expect((await gerar("2027-04")).statusCode).toBe(200);
+  const [, abril] = await cobrancasDe(id);
+  expect(n(abril.valor)).toBe(1850);
+  expect(dia(abril.vencimento.toISOString())).toBe("2027-04-10");
+});
+
+it("quita competências abertas e futuras em lote sem gerar duplicatas", async () => {
+  const a = await aluno({ diaVencimento: 31, valorMensalidadePersonalizado: 1500 });
+  expect(await executarGeracaoAutomatica(app)).toMatchObject({ executou: true, resultado: { criadas: 1 } });
+  const consulta = await req(admin, "GET", `/mensalidades/pagamentos/${a.id}`);
+  expect(consulta.json().meses).toEqual(expect.arrayContaining([
+    { mes: 3, status: "PENDENTE", centavos: 150000 },
+    { mes: 4, status: "PENDENTE", centavos: 150000 },
+  ]));
+  const pagamento = { alunoId: a.id, ano: 2027, meses: [3, 4, 6], totalCentavos: 450000, formaPagamento: "PIX" };
+  expect((await req(admin, "POST", "/mensalidades/pagamentos", { ...pagamento, totalCentavos: 1 })).statusCode).toBe(409);
+  expect(await cobrancasDe(a.id)).toHaveLength(1);
+  const recebido = await req(admin, "POST", "/mensalidades/pagamentos", pagamento);
+  expect(recebido.statusCode, recebido.body).toBe(200);
+  expect(recebido.json()).toEqual({ registradas: 3 });
+  expect((await req(admin, "POST", "/mensalidades/pagamentos", pagamento)).statusCode).toBe(409);
+  expect((await gerar("2027-04")).json()).toMatchObject({ criadas: 0, jaExistiam: 1 });
+  const cobrancas = await cobrancasDe(a.id);
+  expect(cobrancas.map(m => [m.mesReferencia, m.status, dia(m.vencimento.toISOString())])).toEqual([
+    ["2027-03", "PAGO", "2027-03-31"],
+    ["2027-04", "PAGO", "2027-04-30"],
+    ["2027-06", "PAGO", "2027-06-30"],
+  ]);
+});
+
 afterEach(() => fixarAgora(null));
 
 afterAll(async () => {
@@ -113,6 +160,7 @@ describe("T4 · geração mensal", () => {
   });
 
   it("agendador com cobrancaAutomatica desligada não cria nada; ligada, gera o mês corrente", async () => {
+    await configurar({ cobrancaAutomatica: false });
     await aluno();
     expect(await executarGeracaoAutomatica(app)).toMatchObject({ executou: false });
     expect(await prisma.mensalidade.count()).toBe(0);

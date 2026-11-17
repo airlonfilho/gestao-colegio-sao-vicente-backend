@@ -4,10 +4,12 @@ import { z } from "zod";
 import { lerPaginacao, paginar } from "../utils/paginacao.js";
 import { dataOpcionalSemNull } from "../utils/zod.js";
 import { incluirResponsavel } from "../utils/privacidade.js";
-import { dataCalendario, hojeSP, ymd } from "../utils/relogio.js";
+import { agora, dataCalendario, dataNoMes, hojeSP, ymd } from "../utils/relogio.js";
 import {
   calcularCobranca,
   gerarMensalidades,
+  mensalidadeDoAluno,
+  mesTemCobranca,
   montarValores,
   obterConfiguracao,
   STATUS_NAO_PAGOS,
@@ -32,6 +34,33 @@ export const pagamentoSchema = z.object({
 });
 
 export const gerarSchema = z.object({ mesReferencia });
+
+const alunoIdSchema = z.number().int().positive();
+const pagamentoEmLoteSchema = pagamentoSchema.extend({
+  alunoId: alunoIdSchema,
+  ano: z.number().int(),
+  meses: z.array(z.number().int().min(1).max(12)).min(1).max(12)
+    .refine((meses) => new Set(meses).size === meses.length, "Selecione cada mês uma única vez."),
+  totalCentavos: z.number().int().nonnegative(),
+});
+
+async function competenciasDoAluno(db: Prisma.TransactionClient, alunoId: number, ano: number, hoje: string) {
+  const aluno = await db.aluno.findUnique({ where: { id: alunoId }, include: { turma: true } });
+  if (!aluno) return null;
+  const config = await obterConfiguracao(db);
+  const cobrancas = await db.mensalidade.findMany({
+    where: { alunoId, tipo: "MENSALIDADE", mesReferencia: { startsWith: `${ano}-` } },
+  });
+  const existentes = new Map(cobrancas.map((c) => [c.mesReferencia, c]));
+  return Array.from({ length: 12 }, (_, indice) => {
+    const mes = indice + 1;
+    const referencia = dataNoMes(ano, mes, 1).slice(0, 7);
+    const existente = existentes.get(referencia);
+    const elegivel = aluno.status === "ATIVO" && ymd(aluno.matriculaEm) <= dataNoMes(ano, mes, 31) && mesTemCobranca(referencia, config);
+    const nova = !existente && elegivel ? mensalidadeDoAluno(aluno, referencia, config, hoje) : null;
+    return { mes, existente, nova };
+  });
+}
 
 export const editarSchema = z
   .object({
@@ -135,6 +164,65 @@ export default async function mensalidadesRoutes(app: FastifyInstance) {
     return resultado;
   });
 
+  app.get("/pagamentos/:alunoId", async (request, reply) => {
+    const id = alunoIdSchema.safeParse(Number((request.params as { alunoId: string }).alunoId));
+    if (!id.success) return reply.code(400).send({ message: "Selecione um aluno." });
+    const hoje = hojeSP();
+    const ano = Number(hoje.slice(0, 4));
+    const competencias = await competenciasDoAluno(app.prisma, id.data, ano, hoje);
+    if (!competencias) return reply.code(404).send({ message: "Aluno não encontrado." });
+    return {
+      ano,
+      meses: competencias.map(({ mes, existente, nova }) => ({
+        mes,
+        status: existente?.status ?? nova?.status ?? "INDISPONIVEL",
+        centavos: (existente ?? nova)?.valor.mul(100).toNumber() ?? 0,
+      })),
+    };
+  });
+
+  app.post("/pagamentos", async (request, reply) => {
+    const body = pagamentoEmLoteSchema.safeParse(request.body);
+    if (!body.success) return reply.code(400).send(body.error.flatten());
+    const { alunoId, ano, meses, totalCentavos, formaPagamento, dataPagamento } = body.data;
+    const hoje = hojeSP();
+    if (ano !== Number(hoje.slice(0, 4))) return reply.code(400).send({ message: "Selecione competências do ano corrente." });
+    const dadosPagamento = { status: "PAGO" as const, formaPagamento, dataPagamento: dataPagamento ?? agora() };
+    const mensagemConflito = "As mensalidades foram atualizadas. Confira os meses e o valor antes de registrar.";
+
+    try {
+      const resultado = await app.prisma.$transaction(async (tx) => {
+        const competencias = await competenciasDoAluno(tx, alunoId, ano, hoje);
+        if (!competencias) return { erro: 404 as const, message: "Aluno não encontrado." };
+        const selecionadas = competencias.filter(({ mes }) => meses.includes(mes));
+        const pagaveis = selecionadas.flatMap(({ existente, nova }) => {
+          if (existente && (existente.status === "PENDENTE" || existente.status === "ATRASADO")) return [{ existente, nova }];
+          if (nova && nova.status !== "ISENTO") return [{ existente, nova }];
+          return [];
+        });
+        const total = pagaveis.reduce((soma, { existente, nova }) => soma + (existente ?? nova)!.valor.mul(100).toNumber(), 0);
+        if (pagaveis.length !== meses.length || total !== totalCentavos) return { erro: 409 as const, message: mensagemConflito };
+
+        for (const { existente, nova } of pagaveis) {
+          if (existente) {
+            await tx.mensalidade.update({ where: { id: existente.id }, data: dadosPagamento });
+          } else if (nova) {
+            await tx.mensalidade.create({ data: { ...nova, ...dadosPagamento } });
+          }
+        }
+        return { registradas: meses.length };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      if ("erro" in resultado && resultado.erro) return reply.code(resultado.erro).send({ message: resultado.message });
+      return resultado;
+    } catch (erro) {
+      if (erro instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(erro.code)) {
+        return reply.code(409).send({ message: mensagemConflito });
+      }
+      throw erro;
+    }
+  });
+
   /** Edita uma cobrança não paga: valor = original − desconto; situação recalculada (ISENTO se zero). */
   app.patch("/:id", async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
@@ -167,18 +255,16 @@ export default async function mensalidadesRoutes(app: FastifyInstance) {
 
     const atual = await app.prisma.mensalidade.findUnique({ where: { id }, select: { status: true } });
     if (!atual) return reply.code(404).send({ message: "Cobrança não encontrada." });
-    if (atual.status === "ISENTO") {
-      return reply.code(409).send({ message: "Cobrança isenta não recebe pagamento." });
-    }
-
-    return app.prisma.mensalidade.update({
-      where: { id },
+    const atualizado = await app.prisma.mensalidade.updateMany({
+      where: { id, status: { in: ["PENDENTE", "ATRASADO"] } },
       data: {
         status: "PAGO",
         formaPagamento: body.data.formaPagamento,
         dataPagamento: body.data.dataPagamento ?? new Date(),
       },
     });
+    if (!atualizado.count) return reply.code(409).send({ message: "Esta cobrança já foi paga ou está isenta." });
+    return app.prisma.mensalidade.findUnique({ where: { id } });
   });
 
   app.delete("/:id", async (request, reply) => {

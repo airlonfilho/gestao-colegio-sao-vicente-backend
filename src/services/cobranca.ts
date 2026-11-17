@@ -151,11 +151,7 @@ export async function gerarMensalidades(prisma: PrismaClient, mesReferencia: str
 
       const novas = elegiveis
         .filter((a) => !jaTem.has(a.id))
-        .map((a) => {
-          const vencimento = vencimentoMensalidade(mesReferencia, a.diaVencimento, config);
-          const v = calcularCobranca(a.turma.valorMensalidade, a, vencimento);
-          return { alunoId: a.id, tipo: "MENSALIDADE" as const, mesReferencia, vencimento: dataCalendario(vencimento), ...v };
-        });
+        .map((a) => mensalidadeDoAluno(a, mesReferencia, config));
 
       const criadas = await tx.mensalidade.createMany({ data: novas, skipDuplicates: true });
       base.criadas = criadas.count;
@@ -176,9 +172,21 @@ export async function gerarMensalidades(prisma: PrismaClient, mesReferencia: str
 
 // ---------------------------------------------------------------- cadastro do aluno
 
-type AlunoParaCobranca = DescontoAluno & { id: number; diaVencimento: number | null; turma: { valorMensalidade: Prisma.Decimal } };
+type AlunoParaCobranca = DescontoAluno & {
+  id: number;
+  diaVencimento: number | null;
+  matriculaEm: Date;
+  valorMensalidadePersonalizado: Prisma.Decimal | null;
+  turma: { valorMensalidade: Prisma.Decimal };
+};
 
 const selecionarCriada = { id: true, tipo: true, mesReferencia: true, valor: true, status: true } as const;
+
+export function mensalidadeDoAluno(aluno: AlunoParaCobranca, mesReferencia: string, config: Config, hoje = hojeSP()) {
+  const vencimento = vencimentoMensalidade(mesReferencia, aluno.diaVencimento, config);
+  const valores = calcularCobranca(aluno.valorMensalidadePersonalizado ?? aluno.turma.valorMensalidade, aluno, vencimento, hoje);
+  return { alunoId: aluno.id, tipo: "MENSALIDADE" as const, mesReferencia, vencimento: dataCalendario(vencimento), ...valores };
+}
 
 /**
  * Cobranças geradas ao cadastrar um aluno (mesma transação do cadastro):
@@ -186,6 +194,7 @@ const selecionarCriada = { id: true, tipo: true, mesReferencia: true, valor: tru
  * - fora do período → MENSALIDADE do mês corrente, se o mês tem cobrança e a automática está ligada.
  */
 export async function cobrancasDoCadastro(tx: Prisma.TransactionClient, aluno: AlunoParaCobranca, hoje = hojeSP()) {
+  if (mesDe(ymd(aluno.matriculaEm)) > mesDe(hoje)) return [];
   const config = await obterConfiguracao(tx);
   const ano = Number(hoje.slice(0, 4));
   const noPeriodo = hoje <= fimPeriodoMatricula(config, ano);
@@ -207,10 +216,8 @@ export async function cobrancasDoCadastro(tx: Prisma.TransactionClient, aluno: A
 
   const mesReferencia = mesDe(hoje);
   if (!config.cobrancaAutomatica || !mesTemCobranca(mesReferencia, config)) return [];
-  const vencimento = vencimentoMensalidade(mesReferencia, aluno.diaVencimento, config);
-  const v = calcularCobranca(aluno.turma.valorMensalidade, aluno, vencimento, hoje);
   const criada = await tx.mensalidade.create({
-    data: { alunoId: aluno.id, tipo: "MENSALIDADE", mesReferencia, vencimento: dataCalendario(vencimento), ...v },
+    data: mensalidadeDoAluno(aluno, mesReferencia, config, hoje),
     select: selecionarCriada,
   });
   return [criada];

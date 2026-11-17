@@ -26,5 +26,6 @@ export function ocultarDesconto<T extends object>(perfil: Perfil, aluno: T): T {
   if (perfil === "admin") return aluno;
   const copia = { ...aluno } as Record<string, unknown>;
   for (const campo of CAMPOS_DESCONTO) delete copia[campo];
+  delete copia.valorMensalidadePersonalizado;
   return copia as T;
 }

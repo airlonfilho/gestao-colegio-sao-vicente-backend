@@ -162,6 +162,7 @@ model Aluno {
 
   /// Dia de vencimento próprio (1 a 31); null = padrão da escola.
   diaVencimento  Int?          @map("dia_vencimento")
+  valorMensalidadePersonalizado Decimal? @map("valor_mensalidade_personalizado") @db.Decimal(10, 2)
   /// null = sem desconto.
   tipoDesconto   TipoDesconto? @map("tipo_desconto")
   /// Percentual (0–100) ou valor em R$, conforme tipoDesconto.
@@ -293,7 +294,7 @@ model Configuracao {
   id                      Int      @id @default(1)
   diaVencimentoPadrao     Int      @default(10) @map("dia_vencimento_padrao")
   mesesCobranca           Int[]    @default([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) @map("meses_cobranca")
-  cobrancaAutomatica      Boolean  @default(false) @map("cobranca_automatica")
+  cobrancaAutomatica      Boolean  @default(true) @map("cobranca_automatica")
   cobrarMatricula         Boolean  @default(false) @map("cobrar_matricula")
   valorMatricula          Decimal? @map("valor_matricula") @db.Decimal(10, 2)
   /// A matrícula vence N dias após o cadastro do aluno.
