@@ -18,3 +18,13 @@ export function camposResponsavel(perfil: Perfil) {
     ? { id: true, nome: true, cpf: true, telefone: true, email: true, endereco: true, alunos }
     : { id: true, nome: true, alunos };
 }
+
+const CAMPOS_DESCONTO = ["tipoDesconto", "valorDesconto", "motivoDesconto", "descontoAte"] as const;
+
+/** Remove os campos de desconto/bolsa do aluno para quem não é admin. */
+export function ocultarDesconto<T extends object>(perfil: Perfil, aluno: T): T {
+  if (perfil === "admin") return aluno;
+  const copia = { ...aluno } as Record<string, unknown>;
+  for (const campo of CAMPOS_DESCONTO) delete copia[campo];
+  return copia as T;
+}

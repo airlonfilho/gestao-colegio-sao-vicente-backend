@@ -15,4 +15,6 @@ export async function limparBanco(prisma: PrismaClient) {
   await prisma.disciplina.deleteMany();
   await prisma.funcionario.deleteMany();
   await prisma.usuario.deleteMany();
+  // Configuração volta aos padrões (é recriada por obterConfiguracao).
+  await prisma.configuracao.deleteMany();
 }

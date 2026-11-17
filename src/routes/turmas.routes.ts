@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { textoOpcional } from "../utils/zod.js";
-import { incluirResponsavel } from "../utils/privacidade.js";
+import { incluirResponsavel, ocultarDesconto } from "../utils/privacidade.js";
 
 /** Mesmas opções do select do frontend (src/schema.ts). */
 export const NIVEIS_ENSINO = ["Infantil", "Fundamental I", "Fundamental II", "Ensino Médio"] as const;
@@ -52,11 +52,12 @@ export default async function turmasRoutes(app: FastifyInstance) {
   // Mesmo formato de GET /alunos: cada aluno com turma e responsavel.
   app.get("/:id/alunos", async (request) => {
     const id = Number((request.params as { id: string }).id);
-    return app.prisma.aluno.findMany({
+    const alunos = await app.prisma.aluno.findMany({
       where: { turmaId: id },
       include: { turma: true, responsavel: incluirResponsavel(request.user.perfil) },
       orderBy: { nome: "asc" },
     });
+    return alunos.map((a) => ocultarDesconto(request.user.perfil, a));
   });
 
   app.post("/", { preHandler: app.authorize(["admin"]) }, async (request, reply) => {

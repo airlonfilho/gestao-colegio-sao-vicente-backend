@@ -5,9 +5,10 @@ import { schema as responsavelSchema } from "../routes/responsaveis.routes.js";
 import { schema as turmaSchema } from "../routes/turmas.routes.js";
 import { schema as disciplinaSchema } from "../routes/disciplinas.routes.js";
 import { schema as turmaDisciplinaProfessorSchema } from "../routes/turma-disciplina-professor.routes.js";
-import { schema as alunoSchema, observacaoSchema } from "../routes/alunos.routes.js";
+import { schema as alunoSchema, atualizarSchema as atualizarAlunoSchema, observacaoSchema } from "../routes/alunos.routes.js";
 import { schema as notaSchema } from "../routes/notas.routes.js";
-import { criarSchema as criarMensalidadeSchema, pagamentoSchema as pagamentoMensalidadeSchema } from "../routes/mensalidades.routes.js";
+import { criarSchema as criarMensalidadeSchema, pagamentoSchema as pagamentoMensalidadeSchema, gerarSchema as gerarMensalidadesSchema, editarSchema as editarMensalidadeSchema } from "../routes/mensalidades.routes.js";
+import { configuracaoSchema } from "../routes/configuracoes.routes.js";
 import { schema as funcionarioSchema } from "../routes/funcionarios.routes.js";
 import { schema as despesaSchema } from "../routes/despesas.routes.js";
 import { schema as registroFuncionarioSchema } from "../routes/registros-funcionario.routes.js";
@@ -75,6 +76,7 @@ export const openapiDocument = {
     { name: "Alunos" },
     { name: "Notas" },
     { name: "Mensalidades" },
+    { name: "Configurações" },
     { name: "Funcionários" },
     { name: "Despesas" },
     { name: "Registros de Funcionário" },
@@ -317,7 +319,7 @@ export const openapiDocument = {
       },
       post: {
         tags: ["Alunos"],
-        summary: "🔒 admin — matricula um aluno",
+        summary: "🔒 admin — matricula um aluno. Aceita diaVencimento e desconto (tipoDesconto, valorDesconto, motivoDesconto, descontoAte). Gera na mesma transação a MATRICULA (no período) ou a mensalidade do mês; responde com cobrancasCriadas: [{ id, tipo, mesReferencia, valor, status }]",
         security: bearerAuth,
         requestBody: jsonBody(alunoSchema),
         responses: { 201: { description: "Aluno criado" }, 400: r400, 401: r401, 403: r403 },
@@ -326,17 +328,17 @@ export const openapiDocument = {
     "/alunos/{id}": {
       get: {
         tags: ["Alunos"],
-        summary: "Busca um aluno por id (com turma e responsável)",
+        summary: "Busca um aluno por id (com turma e responsável). Para professor, os campos de desconto não vêm",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         responses: { 200: { description: "Aluno" }, 401: r401, 404: r404 },
       },
       patch: {
         tags: ["Alunos"],
-        summary: "🔒 admin — atualiza aluno",
+        summary: "🔒 admin — atualiza aluno. Mudar turmaId recalcula as cobranças não pagas; mudar diaVencimento/desconto só recalcula com aplicarPendentes: true. Responde com cobrancasRecalculadas",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
-        requestBody: jsonBody(alunoSchema),
+        requestBody: jsonBody(atualizarAlunoSchema),
         responses: { 200: { description: "Aluno atualizado" }, 400: r400, 401: r401, 403: r403, 404: r404 },
       },
       delete: {
@@ -400,10 +402,12 @@ export const openapiDocument = {
     "/mensalidades": {
       get: {
         tags: ["Mensalidades"],
-        summary: "🔒 admin — lista mensalidades (filtra por status/mês). Marca automaticamente como ATRASADO as pendentes vencidas. Paginação via `pagina` é opcional.",
+        summary: "🔒 admin — lista cobranças (filtra por status, tipo, mês, aluno). Cada item traz tipo, valorOriginal, desconto e valor. Marca como ATRASADO as PENDENTE com vencimento antes de hoje; ISENTO nunca vira ATRASADO. Paginação via `pagina` é opcional.",
         security: bearerAuth,
         parameters: [
-          { name: "status", in: "query", required: false, schema: { type: "string", enum: ["PAGO", "PENDENTE", "ATRASADO"] } },
+          { name: "status", in: "query", required: false, schema: { type: "string", enum: ["PAGO", "PENDENTE", "ATRASADO", "ISENTO"] } },
+          { name: "tipo", in: "query", required: false, schema: { type: "string", enum: ["MENSALIDADE", "MATRICULA"] } },
+          { name: "alunoId", in: "query", required: false, schema: { type: "integer" } },
           { name: "mesReferencia", in: "query", required: false, schema: { type: "string", example: "2026-02" } },
           { name: "pagina", in: "query", required: false, schema: { type: "integer" }, description: "Se enviado, resposta vira { dados, total, pagina, totalPaginas }" },
           { name: "tamanhoPagina", in: "query", required: false, schema: { type: "integer" }, description: "Padrão 20, máximo 100" },
@@ -412,7 +416,7 @@ export const openapiDocument = {
       },
       post: {
         tags: ["Mensalidades"],
-        summary: "🔒 admin — gera uma cobrança (status inicial sempre PENDENTE)",
+        summary: "🔒 admin — cobrança manual. `valor` é o valor cheio; aplica o desconto do aluno salvo `desconto` explícito. tipo padrão MENSALIDADE; uma MATRICULA por aluno por ano (409)",
         security: bearerAuth,
         requestBody: jsonBody(criarMensalidadeSchema),
         responses: { 201: { description: "Mensalidade criada" }, 400: r400, 401: r401, 403: r403, 409: r409 },
@@ -425,16 +429,53 @@ export const openapiDocument = {
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         requestBody: jsonBody(pagamentoMensalidadeSchema),
-        responses: { 200: { description: "Mensalidade paga" }, 400: r400, 401: r401, 403: r403, 404: r404 },
+        responses: { 200: { description: "Mensalidade paga" }, 400: r400, 401: r401, 403: r403, 404: r404, 409: { description: "Cobrança ISENTO não recebe pagamento" } },
+      },
+    },
+    "/mensalidades/gerar": {
+      post: {
+        tags: ["Mensalidades"],
+        summary: "🔒 admin — gera as mensalidades do mês para os alunos ATIVO (idempotente; funciona com a cobrança automática desligada)",
+        security: bearerAuth,
+        requestBody: jsonBody(gerarMensalidadesSchema),
+        responses: {
+          200: { description: "{ mesReferencia, criadas, jaExistiam, isentas, ignoradas: { mesSemCobranca, alunoInativo, matriculadoDepois } }" },
+          400: { description: "Mês inválido, ou fora dos meses configurados (mesmo corpo, com criadas: 0 e message de aviso)" },
+          401: r401, 403: r403,
+        },
       },
     },
     "/mensalidades/{id}": {
+      patch: {
+        tags: ["Mensalidades"],
+        summary: "🔒 admin — edita cobrança não paga: valor = valorOriginal − desconto; situação recalculada (ISENTO se zero)",
+        security: bearerAuth,
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        requestBody: jsonBody(editarMensalidadeSchema),
+        responses: { 200: { description: "Cobrança recalculada" }, 400: { description: "Desconto maior que o valor" }, 401: r401, 403: r403, 404: r404, 409: { description: "Cobrança já paga" } },
+      },
       delete: {
         tags: ["Mensalidades"],
         summary: "🔒 admin — exclui a mensalidade",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         responses: { 204: { description: "Excluída" }, 401: r401, 403: r403, 404: r404 },
+      },
+    },
+
+    "/configuracoes": {
+      get: {
+        tags: ["Configurações"],
+        summary: "🔒 admin — configuração de cobrança da escola",
+        security: bearerAuth,
+        responses: { 200: { description: "{ diaVencimentoPadrao, mesesCobranca, cobrancaAutomatica, cobrarMatricula, valorMatricula, diasVencimentoMatricula, periodoMatriculaAte, descontoNaMatricula, atualizadoEm }" }, 401: r401, 403: r403 },
+      },
+      patch: {
+        tags: ["Configurações"],
+        summary: "🔒 admin — altera a configuração (parcial)",
+        security: bearerAuth,
+        requestBody: jsonBody(configuracaoSchema),
+        responses: { 200: { description: "Configuração salva" }, 400: { description: "Dia fora de 1–31, mês fora de 1–12, cobrarMatricula sem valorMatricula" }, 401: r401, 403: r403 },
       },
     },
 

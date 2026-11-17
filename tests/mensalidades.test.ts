@@ -28,7 +28,7 @@ describe("GET /mensalidades", () => {
     ontem.setDate(ontem.getDate() - 1);
 
     await prisma.mensalidade.create({
-      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, vencimento: ontem, status: "PENDENTE" },
+      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, valorOriginal: 1000, vencimento: ontem, status: "PENDENTE" },
     });
 
     const resposta = await app.inject({ method: "GET", url: "/mensalidades", headers: { authorization: `Bearer ${token}` } });
@@ -49,7 +49,7 @@ describe("GET /mensalidades", () => {
     amanha.setDate(amanha.getDate() + 1);
 
     await prisma.mensalidade.create({
-      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, vencimento: amanha, status: "PENDENTE" },
+      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, valorOriginal: 1000, vencimento: amanha, status: "PENDENTE" },
     });
 
     const resposta = await app.inject({ method: "GET", url: "/mensalidades", headers: { authorization: `Bearer ${token}` } });
@@ -66,7 +66,7 @@ describe("GET /mensalidades", () => {
     const ontem = new Date();
     ontem.setDate(ontem.getDate() - 1);
     const mensalidade = await prisma.mensalidade.create({
-      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, vencimento: ontem, status: "PENDENTE" },
+      data: { alunoId: aluno.id, mesReferencia: "2026-01", valor: 1000, valorOriginal: 1000, vencimento: ontem, status: "PENDENTE" },
     });
 
     const resposta = await app.inject({

@@ -51,6 +51,7 @@ async function main() {
       alunoId: aluno.id,
       mesReferencia: "2026-02",
       valor: 1850,
+      valorOriginal: 1850,
       vencimento: new Date("2026-02-05"),
       status: "PENDENTE",
     },

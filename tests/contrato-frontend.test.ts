@@ -87,7 +87,7 @@ describe("PATCH /mensalidades/:id/pagamento", () => {
     const resp = await criarResponsavel(prisma, "m");
     const aluno = await criarAluno(prisma, { turmaId: turma.id, responsavelId: resp.id });
     const m = await prisma.mensalidade.create({
-      data: { alunoId: aluno.id, mesReferencia: "2026-03", valor: 900, vencimento: new Date("2026-03-05") },
+      data: { alunoId: aluno.id, mesReferencia: "2026-03", valor: 900, valorOriginal: 900, vencimento: new Date("2026-03-05") },
     });
 
     const pago = await req(admin, "PATCH", `/mensalidades/${m.id}/pagamento`, { formaPagamento: "PIX", dataPagamento: "" });
