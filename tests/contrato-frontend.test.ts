@@ -2,7 +2,7 @@ import { beforeEach, afterAll, describe, it, expect } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { buildApp } from "../src/app.js";
 import { limparBanco } from "./helpers/db.js";
-import { criarUsuario, logar, criarTurma, criarResponsavel, criarAluno } from "./helpers/fixtures.js";
+import { criarUsuario, logar, criarTurma, criarResponsavel, criarAluno, vincularProfessor } from "./helpers/fixtures.js";
 
 /** Contrato que o frontend usa: null limpa campos opcionais, "" em datas, fotos, senha e observações. */
 
@@ -13,11 +13,12 @@ const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 
 let admin: string;
 let professor: string;
+let professorId: number;
 
 beforeEach(async () => {
   await limparBanco(prisma);
   await criarUsuario(prisma, { email: "admin@teste.com", perfil: "admin" });
-  await criarUsuario(prisma, { email: "prof@teste.com", perfil: "professor" });
+  professorId = (await criarUsuario(prisma, { email: "prof@teste.com", perfil: "professor" })).id;
   admin = await logar(app, "admin@teste.com");
   professor = await logar(app, "prof@teste.com");
 });
@@ -132,6 +133,7 @@ describe("Observações do boletim e foto do aluno", () => {
   async function aluno() {
     const turma = await criarTurma(prisma);
     const resp = await criarResponsavel(prisma, "b");
+    await vincularProfessor(prisma, professorId, turma.id);
     return criarAluno(prisma, { turmaId: turma.id, responsavelId: resp.id });
   }
 

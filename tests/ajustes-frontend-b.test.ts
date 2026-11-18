@@ -2,7 +2,7 @@ import { beforeEach, afterAll, describe, it, expect } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { buildApp, mensagemDuplicidade } from "../src/app.js";
 import { limparBanco } from "./helpers/db.js";
-import { criarUsuario, logar, criarDisciplina, criarResponsavel, criarAluno } from "./helpers/fixtures.js";
+import { criarUsuario, logar, criarDisciplina, criarResponsavel, criarAluno, vincularProfessor } from "./helpers/fixtures.js";
 
 /** Ajustes B1–B5 e D1 pedidos pelo frontend. */
 
@@ -149,10 +149,11 @@ describe("D1 · professor não recebe dados pessoais dos responsáveis", () => {
     const turma = (await req(admin, "POST", "/turmas", turmaBase)).json();
     const resp = await criarResponsavel(prisma, "d1");
     const aluno = await criarAluno(prisma, { turmaId: turma.id, responsavelId: resp.id });
+    await vincularProfessor(prisma, professorId, turma.id);
 
-    const doProfessor = (await req(professor, "GET", "/responsaveis")).json()[0];
-    expect(Object.keys(doProfessor).sort()).toEqual(["alunos", "id", "nome"]);
-    expect(Object.keys((await req(professor, "GET", `/responsaveis/${resp.id}`)).json()).sort()).toEqual(["alunos", "id", "nome"]);
+    // A tela de responsáveis é só do admin.
+    expect((await req(professor, "GET", "/responsaveis")).statusCode).toBe(403);
+    expect((await req(professor, "GET", `/responsaveis/${resp.id}`)).statusCode).toBe(403);
 
     for (const url of ["/alunos", `/alunos/${aluno.id}`, `/turmas/${turma.id}/alunos`]) {
       const corpo = (await req(professor, "GET", url)).json();

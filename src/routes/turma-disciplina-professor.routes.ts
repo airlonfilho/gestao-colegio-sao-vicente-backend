@@ -10,8 +10,10 @@ export const schema = z.object({
 export default async function turmaDisciplinaProfessorRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
 
-  app.get("/", async () => {
+  // Professor: só os próprios vínculos.
+  app.get("/", async (request) => {
     return app.prisma.turmaDisciplinaProfessor.findMany({
+      where: request.user.perfil === "admin" ? undefined : { usuarioId: request.user.id },
       include: { turma: true, disciplina: true, professor: { select: { id: true, nome: true } } },
     });
   });

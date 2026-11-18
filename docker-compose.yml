@@ -26,16 +26,54 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://escola:escola@db:5432/escola?schema=public
+      EVOLUTION_API_URL: http://evolution:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-troque-esta-chave-da-evolution}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-colegio-sao-vicente}
     ports:
       - "3333:3333"
     depends_on:
       db:
         condition: service_healthy
+      evolution:
+        condition: service_started
     volumes:
       # código montado: ao salvar no VS Code, a API reinicia sozinha (tsx watch)
       - ./src:/app/src
       - ./prisma:/app/prisma
     command: sh -c "npx prisma migrate deploy && npx prisma generate && npm run dev"
 
+  # WhatsApp: Evolution API (https://doc.evolution-api.com). Mantém a sessão do número da escola.
+  # O QR Code, o status e a desconexão são feitos pela tela "WhatsApp" do sistema, via API (a chave não vai ao navegador).
+  evolution:
+    image: atendai/evolution-api:v2.2.3
+    container_name: colegio-whatsapp
+    restart: unless-stopped
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-troque-esta-chave-da-evolution}
+      LANGUAGE: pt-BR
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "30"
+      # Usa o mesmo Postgres, num schema separado (evolution_api): não mistura com as tabelas do sistema.
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://escola:escola@db:5432/escola?schema=evolution_api
+      DATABASE_CONNECTION_CLIENT_NAME: colegio
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"   # só a sua máquina acessa; a API fala com ela pela rede interna do compose
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  evolution_instances:

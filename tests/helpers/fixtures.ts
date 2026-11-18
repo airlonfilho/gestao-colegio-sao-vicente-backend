@@ -60,3 +60,10 @@ export async function criarAluno(
     },
   });
 }
+
+/** Vincula o professor à turma numa disciplina (cria a disciplina se não vier). */
+export async function vincularProfessor(prisma: PrismaClient, usuarioId: number, turmaId: number, disciplinaId?: number) {
+  const id = disciplinaId ?? (await criarDisciplina(prisma, `Disciplina ${turmaId}-${usuarioId}-${Date.now()}`)).id;
+  await prisma.turmaDisciplinaProfessor.create({ data: { usuarioId, turmaId, disciplinaId: id } });
+  return id;
+}

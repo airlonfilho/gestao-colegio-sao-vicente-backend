@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { hojeSP, ymd } from "../utils/relogio.js";
+import { enviarTexto, ErroWhatsapp } from "../services/whatsapp.js";
 
 export const enviarSchema = z.object({
   alunoId: z.number().int(),
@@ -56,25 +57,22 @@ export default async function mensagensWhatsappRoutes(app: FastifyInstance) {
       data: { ...dados, status: "PENDENTE" },
     });
 
+    // Envio pela Evolution API (services/whatsapp). Falhou → registro fica com ERRO e a resposta explica o motivo.
     try {
-      const resposta = await fetch(`${process.env.WHATSAPP_SERVICE_URL}/enviar`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ telefone, mensagem: dados.mensagem }),
-      });
-
+      await enviarTexto(telefone, dados.mensagem);
       const atualizado = await app.prisma.mensagemWhatsapp.update({
         where: { id: registro.id },
-        data: { status: resposta.ok ? "ENVIADO" : "ERRO", enviadoEm: new Date() },
+        data: { status: "ENVIADO", enviadoEm: new Date() },
       });
-      return reply.code(resposta.ok ? 201 : 502).send(atualizado);
+      return reply.code(201).send(atualizado);
     } catch (erro) {
-      app.log.error(erro, "Falha ao chamar o whatsapp-service");
+      app.log.error(erro, "Falha ao enviar pelo WhatsApp (Evolution API)");
       const atualizado = await app.prisma.mensagemWhatsapp.update({
         where: { id: registro.id },
         data: { status: "ERRO" },
       });
-      return reply.code(502).send(atualizado);
+      const message = erro instanceof ErroWhatsapp ? erro.message : "Não foi possível enviar pelo WhatsApp.";
+      return reply.code(502).send({ ...atualizado, message });
     }
   }
 }

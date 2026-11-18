@@ -4,7 +4,7 @@ import { buildApp } from "../src/app.js";
 import { executarGeracaoAutomatica } from "../src/services/agendador.js";
 import { fixarAgora } from "../src/utils/relogio.js";
 import { limparBanco } from "./helpers/db.js";
-import { criarUsuario, logar, criarResponsavel } from "./helpers/fixtures.js";
+import { criarUsuario, logar, criarResponsavel, vincularProfessor } from "./helpers/fixtures.js";
 
 /**
  * Critérios de aceite da cobrança automática. Valores de exemplo: turma de R$ 1.850,00,
@@ -16,6 +16,7 @@ const app = buildApp();
 
 let admin: string;
 let professor: string;
+let professorId: number;
 let turmaId: number;
 let responsavelId: number;
 
@@ -49,7 +50,7 @@ beforeEach(async () => {
   fixarAgora(new Date("2027-03-01T12:00:00Z"));
   await limparBanco(prisma);
   await criarUsuario(prisma, { email: "admin@teste.com", perfil: "admin" });
-  await criarUsuario(prisma, { email: "prof@teste.com", perfil: "professor" });
+  professorId = (await criarUsuario(prisma, { email: "prof@teste.com", perfil: "professor" })).id;
   admin = await logar(app, "admin@teste.com");
   professor = await logar(app, "prof@teste.com");
   turmaId = (await prisma.turma.create({
@@ -341,6 +342,7 @@ describe("T8 · filtros e privacidade", () => {
 
   it("professor não recebe os campos de desconto do aluno; admin recebe", async () => {
     const a = await aluno({ tipoDesconto: "PERCENTUAL", valorDesconto: 30, motivoDesconto: "Irmãos", diaVencimento: 5 });
+    await vincularProfessor(prisma, professorId, turmaId);
 
     for (const url of ["/alunos", `/alunos/${a.id}`, `/turmas/${turmaId}/alunos`]) {
       const corpo = (await req(professor, "GET", url)).json();

@@ -13,6 +13,7 @@ import { schema as funcionarioSchema } from "../routes/funcionarios.routes.js";
 import { schema as despesaSchema } from "../routes/despesas.routes.js";
 import { schema as registroFuncionarioSchema } from "../routes/registros-funcionario.routes.js";
 import { enviarSchema as enviarMensagemWhatsappSchema } from "../routes/mensagens-whatsapp.routes.js";
+import { conectarSchema as conectarWhatsappSchema, testeSchema as testeWhatsappSchema } from "../routes/whatsapp.routes.js";
 
 /**
  * Converte um schema zod para JSON Schema (formato OpenAPI 3), inline (sem $ref).
@@ -167,7 +168,7 @@ export const openapiDocument = {
     "/responsaveis": {
       get: {
         tags: ["Responsáveis"],
-        summary: "Lista responsáveis com os alunos vinculados (professor recebe só id, nome e alunos — LGPD)",
+        summary: "🔒 admin — lista responsáveis com os alunos vinculados",
         security: bearerAuth,
         responses: { 200: { description: "Lista de responsáveis" }, 401: r401 },
       },
@@ -182,7 +183,7 @@ export const openapiDocument = {
     "/responsaveis/{id}": {
       get: {
         tags: ["Responsáveis"],
-        summary: "Busca um responsável por id (professor recebe só id, nome e alunos — LGPD)",
+        summary: "🔒 admin — busca um responsável por id",
         security: bearerAuth,
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
         responses: { 200: { description: "Responsável" }, 401: r401, 404: r404 },
@@ -207,7 +208,7 @@ export const openapiDocument = {
     "/turmas": {
       get: {
         tags: ["Turmas"],
-        summary: "Lista turmas com a contagem de alunos e o currículo (disciplinaIds)",
+        summary: "Lista turmas com a contagem de alunos e o currículo (disciplinaIds). Professor recebe só as turmas e disciplinas em que leciona",
         security: bearerAuth,
         responses: { 200: { description: "Lista de turmas" }, 401: r401 },
       },
@@ -249,7 +250,7 @@ export const openapiDocument = {
     "/disciplinas": {
       get: {
         tags: ["Disciplinas"],
-        summary: "Lista disciplinas",
+        summary: "Lista disciplinas (professor: só as que leciona)",
         security: bearerAuth,
         responses: { 200: { description: "Lista de disciplinas" }, 401: r401 },
       },
@@ -307,7 +308,7 @@ export const openapiDocument = {
     "/alunos": {
       get: {
         tags: ["Alunos"],
-        summary: "Lista alunos. Por padrão só ATIVO; paginação via `pagina` é opcional (sem ela, retorna array puro)",
+        summary: "Lista alunos (professor: só das turmas em que leciona). Por padrão só ATIVO; paginação via `pagina` é opcional (sem ela, retorna array puro)",
         security: bearerAuth,
         parameters: [
           { name: "busca", in: "query", required: false, schema: { type: "string" }, description: "Busca por nome, case-insensitive" },
@@ -581,7 +582,7 @@ export const openapiDocument = {
     "/mensagens-whatsapp": {
       get: {
         tags: ["Mensagens WhatsApp"],
-        summary: "Lista o histórico de mensagens (com aluno + responsável)",
+        summary: "🔒 admin — lista o histórico de mensagens (com aluno + responsável)",
         security: bearerAuth,
         responses: { 200: { description: "Lista de mensagens" }, 401: r401, 403: r403 },
       },
@@ -589,7 +590,7 @@ export const openapiDocument = {
     "/mensagens-whatsapp/enviar": {
       post: {
         tags: ["Mensagens WhatsApp"],
-        summary: "🔒 admin — envia uma mensagem ao responsável do aluno via whatsapp-service",
+        summary: "🔒 admin — envia uma mensagem ao responsável do aluno pelo WhatsApp da escola (Evolution API)",
         security: bearerAuth,
         requestBody: jsonBody(enviarMensagemWhatsappSchema),
         responses: {
@@ -598,8 +599,48 @@ export const openapiDocument = {
           401: r401,
           403: r403,
           404: r404,
-          502: { description: "whatsapp-service indisponível ou não conectado (QR Code não escaneado)", content: { "application/json": { schema: respostaMensagem } } },
+          502: { description: "WhatsApp desconectado ou Evolution API indisponível (o registro fica com status ERRO e `message` explica)", content: { "application/json": { schema: respostaMensagem } } },
         },
+      },
+    },
+
+    "/whatsapp/status": {
+      get: {
+        tags: ["WhatsApp"],
+        summary: "🔒 admin — estado da conexão: conectado | conectando | desconectado | indisponivel (sempre 200; `configurado: false` sem EVOLUTION_API_URL/KEY)",
+        security: bearerAuth,
+        responses: { 200: { description: "{ configurado, estado, numero?, nome?, foto?, erro? }" }, 401: r401, 403: r403 },
+      },
+    },
+    "/whatsapp/conectar": {
+      post: {
+        tags: ["WhatsApp"],
+        summary: "🔒 admin — inicia a conexão: devolve o QR Code (data URL). Com `numero`, devolve também o código de pareamento",
+        security: bearerAuth,
+        requestBody: jsonBody(conectarWhatsappSchema),
+        responses: {
+          200: { description: "{ estado: 'conectando', qrcode?, codigoPareamento? } ou { estado: 'conectado' }" },
+          400: r400, 401: r401, 403: r403,
+          502: { description: "Evolution API indisponível ou recusou", content: { "application/json": { schema: respostaMensagem } } },
+          503: { description: "WhatsApp não configurado no servidor", content: { "application/json": { schema: respostaMensagem } } },
+        },
+      },
+    },
+    "/whatsapp/desconectar": {
+      post: {
+        tags: ["WhatsApp"],
+        summary: "🔒 admin — desconecta o número da escola (logout); conectar de novo exige novo QR Code",
+        security: bearerAuth,
+        responses: { 204: { description: "Desconectado" }, 401: r401, 403: r403, 502: { description: "Evolution API indisponível", content: { "application/json": { schema: respostaMensagem } } } },
+      },
+    },
+    "/whatsapp/teste": {
+      post: {
+        tags: ["WhatsApp"],
+        summary: "🔒 admin — envia uma mensagem de teste para um telefone",
+        security: bearerAuth,
+        requestBody: jsonBody(testeWhatsappSchema),
+        responses: { 200: { description: "{ enviado: true }" }, 400: r400, 401: r401, 403: r403, 502: { description: "Falha no envio", content: { "application/json": { schema: respostaMensagem } } } },
       },
     },
   },

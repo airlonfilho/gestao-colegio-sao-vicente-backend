@@ -19,7 +19,8 @@ export const schema = z.object({
 });
 
 export default async function responsaveisRoutes(app: FastifyInstance) {
-  app.addHook("preHandler", app.authenticate);
+  // Contatos das famílias e mensagens: só admin (o professor não usa essas telas).
+  app.addHook("preHandler", app.authorize(["admin"]));
 
   // Professor recebe só id, nome e alunos (LGPD); admin recebe o cadastro completo.
   app.get("/", async (request) => {

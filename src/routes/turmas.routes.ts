@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { textoOpcional } from "../utils/zod.js";
 import { incluirResponsavel, ocultarDesconto } from "../utils/privacidade.js";
+import { escopoProfessor, SEM_ACESSO } from "../utils/escopo.js";
 
 /** Mesmas opções do select do frontend (src/schema.ts). */
 export const NIVEIS_ENSINO = ["Infantil", "Fundamental I", "Fundamental II", "Ensino Médio"] as const;
@@ -41,17 +42,24 @@ export default async function turmasRoutes(app: FastifyInstance) {
     return unicos;
   }
 
-  app.get("/", async () => {
+  // Professor recebe só as turmas em que leciona, com o currículo restrito às disciplinas dele.
+  app.get("/", async (request) => {
+    const escopo = await escopoProfessor(app, request);
     const turmas = await app.prisma.turma.findMany({
+      where: escopo ? { id: { in: escopo.turmaIds } } : undefined,
       include: { _count: { select: { alunos: true } }, ...includeCurriculo },
       orderBy: { nome: "asc" },
     });
-    return turmas.map(comDisciplinaIds);
+    return turmas.map(comDisciplinaIds).map((t) =>
+      escopo ? { ...t, disciplinaIds: t.disciplinaIds.filter((id) => escopo.disciplinasDaTurma(t.id).includes(id)) } : t,
+    );
   });
 
   // Mesmo formato de GET /alunos: cada aluno com turma e responsavel.
-  app.get("/:id/alunos", async (request) => {
+  app.get("/:id/alunos", async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
+    const escopo = await escopoProfessor(app, request);
+    if (escopo && !escopo.turmaIds.includes(id)) return reply.code(403).send(SEM_ACESSO);
     const alunos = await app.prisma.aluno.findMany({
       where: { turmaId: id },
       include: { turma: true, responsavel: incluirResponsavel(request.user.perfil) },

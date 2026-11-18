@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { normalizarNome } from "../utils/texto.js";
+import { escopoProfessor } from "../utils/escopo.js";
 
 export const schema = z.object({ nome: z.string().trim().min(1) });
 
@@ -19,9 +20,15 @@ export default async function disciplinasRoutes(app: FastifyInstance) {
     return false;
   }
 
-  app.get("/", async () =>
-    app.prisma.disciplina.findMany({ select: { id: true, nome: true }, orderBy: { nome: "asc" } })
-  );
+  // Professor: só as disciplinas que leciona.
+  app.get("/", async (request) => {
+    const escopo = await escopoProfessor(app, request);
+    return app.prisma.disciplina.findMany({
+      where: escopo ? { id: { in: escopo.disciplinaIds } } : undefined,
+      select: { id: true, nome: true },
+      orderBy: { nome: "asc" },
+    });
+  });
 
   app.post("/", { preHandler: app.authorize(["admin"]) }, async (request, reply) => {
     const body = schema.safeParse(request.body);

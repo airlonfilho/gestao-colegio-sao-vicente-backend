@@ -5,6 +5,7 @@ import { dataOpcional, fotoOpcional, textoOpcional } from "../utils/zod.js";
 import { incluirResponsavel, ocultarDesconto } from "../utils/privacidade.js";
 import { cobrancasDoCadastro, recalcularNaoPagas } from "../services/cobranca.js";
 import { comDisciplinaIds, includeCurriculo } from "./turmas.routes.js";
+import { escopoProfessor, SEM_ACESSO } from "../utils/escopo.js";
 
 export const schema = z.object({
   nome: z.string().min(1),
@@ -68,7 +69,10 @@ export default async function alunosRoutes(app: FastifyInstance) {
   app.get("/", async (request) => {
     const query = request.query as { busca?: string; status?: string; pagina?: string; tamanhoPagina?: string };
 
+    // Professor: só alunos das turmas em que leciona.
+    const escopo = await escopoProfessor(app, request);
     const where = {
+      ...(escopo ? { turmaId: { in: escopo.turmaIds } } : {}),
       ...(query.busca ? { nome: { contains: query.busca, mode: "insensitive" as const } } : {}),
       ...(query.status === "TODOS" ? {} : { status: (query.status as "ATIVO" | "INATIVO") ?? "ATIVO" }),
     };
@@ -96,6 +100,8 @@ export default async function alunosRoutes(app: FastifyInstance) {
       include: { turma: true, responsavel: incluirResponsavel(request.user.perfil) },
     });
     if (!aluno) return reply.code(404).send({ message: "Aluno não encontrado" });
+    const escopo = await escopoProfessor(app, request);
+    if (escopo && !escopo.turmaIds.includes(aluno.turmaId)) return reply.code(403).send(SEM_ACESSO);
     return ocultarDesconto(request.user.perfil, aluno);
   });
 
@@ -106,11 +112,20 @@ export default async function alunosRoutes(app: FastifyInstance) {
       include: { turma: { include: includeCurriculo } },
     });
     if (!encontrado) return reply.code(404).send({ message: "Aluno não encontrado" });
-    const aluno = ocultarDesconto(request.user.perfil, { ...encontrado, turma: comDisciplinaIds(encontrado.turma) });
+
+    // Professor: só alunos das turmas dele, e o boletim mostra só as disciplinas que ele leciona na turma.
+    const escopo = await escopoProfessor(app, request);
+    if (escopo && !escopo.turmaIds.includes(encontrado.turmaId)) return reply.code(403).send(SEM_ACESSO);
+    const permitidas = escopo?.disciplinasDaTurma(encontrado.turmaId);
+    const turma = comDisciplinaIds(encontrado.turma);
+    const aluno = ocultarDesconto(request.user.perfil, {
+      ...encontrado,
+      turma: permitidas ? { ...turma, disciplinaIds: turma.disciplinaIds.filter((d) => permitidas.includes(d)) } : turma,
+    });
 
     const [notas, observacoes] = await Promise.all([
       app.prisma.nota.findMany({
-        where: { alunoId: id },
+        where: { alunoId: id, ...(permitidas ? { disciplinaId: { in: permitidas } } : {}) },
         include: { disciplina: true },
         orderBy: [{ disciplina: { nome: "asc" } }, { bimestre: "asc" }],
       }),

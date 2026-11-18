@@ -26,10 +26,18 @@ export default async function notasRoutes(app: FastifyInstance) {
     return Boolean(vinculo);
   }
 
+  // Professor: só notas das disciplinas que leciona, de alunos das turmas em que leciona essa disciplina.
   app.get("/", async (request) => {
     const { alunoId } = request.query as { alunoId?: string };
+    const vinculos = request.user.perfil === "admin" ? null : await app.prisma.turmaDisciplinaProfessor.findMany({
+      where: { usuarioId: request.user.id },
+      select: { turmaId: true, disciplinaId: true },
+    });
     return app.prisma.nota.findMany({
-      where: alunoId ? { alunoId: Number(alunoId) } : undefined,
+      where: {
+        ...(alunoId ? { alunoId: Number(alunoId) } : {}),
+        ...(vinculos ? { OR: vinculos.length ? vinculos.map((v) => ({ disciplinaId: v.disciplinaId, aluno: { turmaId: v.turmaId } })) : [{ id: -1 }] } : {}),
+      },
       include: { disciplina: true, aluno: { select: { id: true, nome: true } } },
       orderBy: [{ bimestre: "asc" }],
     });

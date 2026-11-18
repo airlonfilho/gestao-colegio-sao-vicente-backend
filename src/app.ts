@@ -22,6 +22,7 @@ import despesasRoutes from "./routes/despesas.routes.js";
 import registrosFuncionarioRoutes from "./routes/registros-funcionario.routes.js";
 import mensagensWhatsappRoutes from "./routes/mensagens-whatsapp.routes.js";
 import configuracoesRoutes from "./routes/configuracoes.routes.js";
+import whatsappRoutes from "./routes/whatsapp.routes.js";
 
 /**
  * Mensagem de duplicidade (P2002) específica do recurso, em vez de uma genérica.
@@ -92,6 +93,7 @@ export function buildApp() {
   app.register(registrosFuncionarioRoutes, { prefix: "/registros-funcionario" });
   app.register(mensagensWhatsappRoutes, { prefix: "/mensagens-whatsapp" });
   app.register(configuracoesRoutes, { prefix: "/configuracoes" });
+  app.register(whatsappRoutes, { prefix: "/whatsapp" });
 
   app.get("/health", async () => ({ status: "ok" }));
 
