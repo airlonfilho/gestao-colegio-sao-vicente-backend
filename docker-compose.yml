@@ -45,7 +45,7 @@ services:
   # WhatsApp: Evolution API (https://doc.evolution-api.com). Mantém a sessão do número da escola.
   # O QR Code, o status e a desconexão são feitos pela tela "WhatsApp" do sistema, via API (a chave não vai ao navegador).
   evolution:
-    image: atendai/evolution-api:v2.2.3
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: colegio-whatsapp
     restart: unless-stopped
     environment:
